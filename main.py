@@ -119,16 +119,21 @@ class SerialWorker(QThread):
     command_sent = Signal(str, float)      # actual write completed
     malformed = Signal(float)             # malformed CSV-like sensor row
     device_message = Signal(float, str)    # text/optional frequency acknowledgement
+    capture_drained = Signal(int)         # preceding reader signals have been queued
 
     def __init__(self, port: str):
         super().__init__()
         self.port = port
         self._stopped = threading.Event()
-        self._outgoing: queue.Queue[str] = queue.Queue()
+        self._outgoing: queue.Queue[str | tuple[str, int]] = queue.Queue()
 
     def send(self, command: str):
         """Queue, rather than write from the GUI thread (thread-safe)."""
         self._outgoing.put(command)
+
+    def drain_capture(self, token: int):
+        """Mark the end of already-read samples without writing to the port."""
+        self._outgoing.put(('capture_drained', token))
 
     def run(self):
         try:
@@ -140,6 +145,9 @@ class SerialWorker(QThread):
                     try:
                         while True:
                             command = self._outgoing.get_nowait()
+                            if isinstance(command, tuple):
+                                self.capture_drained.emit(command[1])
+                                continue
                             # Firmware expects raw ASCII with NO terminating newline.
                             conn.write(command.encode('ascii'))
                             conn.flush()
@@ -186,6 +194,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = load_settings()
+        self.capture_drain_token = 0
+        self.capture_drain_pending = None
         self.config_error = self.settings.pop('_config_error', '')
         self.setWindowTitle('Sensor Test Station — Automated Evaluation')
         screen = QApplication.primaryScreen()
@@ -481,6 +491,7 @@ class MainWindow(QMainWindow):
         worker.connected.connect(self.on_connected)
         worker.status.connect(self.on_status)
         worker.command_sent.connect(self.on_command_sent)
+        worker.capture_drained.connect(self.on_capture_drained)
         worker.finished.connect(self.on_worker_finished)
         worker.start()
         self.update_controls()
@@ -604,6 +615,7 @@ class MainWindow(QMainWindow):
             return
         self.baseline_samples = []
         self.excited_samples = []
+        self.capture_drain_pending = None
         self.frequency_runs = []
         self.last_results = None
         self.test_frequencies = frequencies
@@ -632,23 +644,41 @@ class MainWindow(QMainWindow):
                 self.finish_test_error('Serial write timed out')
         elif self.test_state == 'BASELINE_SETTLE' and now >= self.deadline:
             self.begin_capture('BASELINE_CAPTURE', self.settings['baseline_capture_s'])
-        elif self.test_state == 'BASELINE_CAPTURE' and now >= self.deadline:
-            try:
-                self.check_capture(self.baseline_samples, 'baseline_capture_s', 'baseline')
-            except ValueError as exc:
-                self.finish_test_error(str(exc))
-                return
-            self.request_response(now)
+        elif self.test_state in ('BASELINE_CAPTURE', 'EXCITE_CAPTURE') and now >= self.deadline:
+            if self.capture_drain_pending is None:
+                self.capture_drain_token += 1
+                self.capture_drain_pending = self.capture_drain_token
+                self.capture_drain_started = now
+                if self.worker:
+                    self.worker.drain_capture(self.capture_drain_pending)
+                else:
+                    self.finish_test_error('Serial connection lost')
+            elif now - self.capture_drain_started > 2.0:
+                self.finish_test_error('Timed out waiting for received samples')
         elif self.test_state == 'EXCITE_SETTLE' and now >= self.deadline:
             self.begin_capture('EXCITE_CAPTURE', self.test_timing['excite_capture_s'])
-        elif self.test_state == 'EXCITE_CAPTURE' and now >= self.deadline:
-            self.complete_test()
         elif self.test_state == 'WAIT_REJECTED' and now >= self.deadline:
             self.frequency_index += 1
             if self.frequency_index < len(self.test_frequencies):
                 self.request_response(now)
             else:
                 self.finish_sequence()
+
+    def on_capture_drained(self, token):
+        # The worker emits this marker after its earlier sample signals. Wait
+        # until those queued signals reach the GUI before checking the capture.
+        if token != self.capture_drain_pending:
+            return
+        self.capture_drain_pending = None
+        if self.test_state == 'BASELINE_CAPTURE':
+            try:
+                self.check_capture(self.baseline_samples, 'baseline_capture_s', 'baseline')
+            except ValueError as exc:
+                self.finish_test_error(str(exc))
+                return
+            self.request_response(time.perf_counter())
+        elif self.test_state == 'EXCITE_CAPTURE':
+            self.complete_test()
 
     def required_samples(self, duration_key: str) -> int:
         # Allow overhead/dropouts, but refuse meaningless tiny captures.
@@ -657,6 +687,7 @@ class MainWindow(QMainWindow):
         return max(40, int(0.6 * self.test_settings['nominal_sample_rate_hz'] * duration))
 
     def begin_capture(self, state: str, duration: float):
+        self.capture_drain_pending = None
         self.capture_start = time.perf_counter()
         self.deadline = self.capture_start + duration
         suffix = f'{duration:g} seconds'

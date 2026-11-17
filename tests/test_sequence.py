@@ -17,6 +17,7 @@ class WindowStub:
     on_command_sent = main.MainWindow.on_command_sent
     on_sample = main.MainWindow.on_sample
     advance_test = main.MainWindow.advance_test
+    on_capture_drained = main.MainWindow.on_capture_drained
     required_samples = main.MainWindow.required_samples
     begin_capture = main.MainWindow.begin_capture
     check_capture = main.MainWindow.check_capture
@@ -38,6 +39,8 @@ class WindowStub:
                              excite_settle_s=0.1, initial_excite_extra_settle_s=0,
                              baseline_capture_s=0.5,
                              excite_capture_s=0.5)
+        self.capture_drain_token = 0
+        self.capture_drain_pending = None
         self.is_connected = True
         self.config_error = ''
         self.worker = Mock()
@@ -77,9 +80,11 @@ class TestSequence(unittest.TestCase):
     def setUp(self):
         self.window = WindowStub()
 
-    def tick(self, timestamp):
+    def tick(self, timestamp, drain=True):
         with patch('main.time.perf_counter', return_value=timestamp):
             self.window.advance_test()
+            if drain and self.window.capture_drain_pending is not None:
+                self.window.on_capture_drained(self.window.capture_drain_pending)
 
     def begin(self):
         with patch('main.time.perf_counter', return_value=100.0):
@@ -161,6 +166,60 @@ class TestSequence(unittest.TestCase):
         self.assertEqual(w.test_state, 'ERROR')
         self.assertIn('Insufficient baseline', w.state_history[-1][1])
         self.assertEqual(w.worker.send.call_args_list[-1].args[0], 'baseline')
+
+    def test_capture_waits_for_delayed_received_samples(self):
+        w = self.window
+        self.begin()
+        for i in range(30):
+            w.on_sample(100.11 + i / 100, (0.0,) * 8)
+        self.tick(100.62, drain=False)
+        self.assertEqual(w.test_state, 'BASELINE_CAPTURE')
+        token = w.capture_drain_pending
+        w.worker.drain_capture.assert_called_once_with(token)
+        for i in range(30, 50):
+            w.on_sample(100.11 + i / 100, (0.0,) * 8)
+        with patch('main.time.perf_counter', return_value=100.63):
+            w.on_capture_drained(token)
+        self.assertEqual(len(w.baseline_samples), 50)
+        self.assertEqual(w.test_state, 'WAIT_RESPONSE_COMMAND')
+
+    def test_delayed_capture_still_rejects_insufficient_samples(self):
+        w = self.window
+        self.begin()
+        for i in range(30):
+            w.on_sample(100.11 + i / 100, (0.0,) * 8)
+        self.tick(100.62)
+        self.assertEqual(w.test_state, 'ERROR')
+        self.assertIn('Insufficient baseline', w.state_history[-1][1])
+
+    def test_excited_capture_waits_for_delayed_received_samples(self):
+        w = self.window
+        self.begin()
+        for i in range(50):
+            w.on_sample(100.11 + i / 100, (0.0,) * 8)
+        self.tick(100.62)
+        w.on_command_sent('response:10', 100.62)
+        self.tick(100.73)
+        for i in range(30):
+            w.on_sample(100.73 + i / 100, (0.0,) * 8)
+        w.complete_test = Mock()
+        self.tick(101.24, drain=False)
+        token = w.capture_drain_pending
+        self.assertEqual(w.test_state, 'EXCITE_CAPTURE')
+        w.complete_test.assert_not_called()
+        for i in range(30, 50):
+            w.on_sample(100.73 + i / 100, (0.0,) * 8)
+        w.on_capture_drained(token)
+        self.assertEqual(len(w.excited_samples), 50)
+        w.complete_test.assert_called_once()
+
+    def test_capture_drain_timeout_reports_error(self):
+        w = self.window
+        self.begin()
+        self.tick(100.62, drain=False)
+        self.tick(102.63, drain=False)
+        self.assertEqual(w.test_state, 'ERROR')
+        self.assertIn('Timed out waiting', w.state_history[-1][1])
 
     def test_capture_stall_at_window_end_is_test_error(self):
         w = self.window

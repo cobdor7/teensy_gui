@@ -1,6 +1,7 @@
 """Serial worker tests using a simulated port; no hardware is accessed."""
 import os
 import queue
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -92,6 +93,33 @@ class TestSerialWorker(unittest.TestCase):
             worker.run()
         self.assertTrue(any('port unavailable' in status for status in statuses))
         self.assertEqual(connections, [False])
+
+    def test_capture_marker_arrives_after_prior_sample(self):
+        received = threading.Event()
+
+        class SignallingSerial(FakeSerial):
+            def readline(self):
+                data = super().readline()
+                if data:
+                    received.set()
+                return data
+
+        port = SignallingSerial()
+        worker = SerialWorker('FAKE')
+        events = []
+        worker.sample.connect(lambda timestamp, values: events.append('sample'))
+        worker.capture_drained.connect(lambda token: events.append(('drained', token)))
+        with patch('main.serial.Serial', return_value=port):
+            worker.start()
+            try:
+                port.incoming.put(b'1, 2, 3, 4, 5, 6, 7, 8,\r\n')
+                self.assertTrue(received.wait(2), 'Worker did not read the sample')
+                worker.drain_capture(7)
+                self.assertTrue(self.wait_for(lambda: ('drained', 7) in events))
+                self.assertEqual(events, ['sample', ('drained', 7)])
+            finally:
+                worker.stop()
+                self.app.processEvents()
 
 
 if __name__ == '__main__':

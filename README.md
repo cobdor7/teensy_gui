@@ -2,7 +2,9 @@
 
 Cross-platform PySide6 GUI for the **preflashed** eight-channel Teensy. It never uploads or modifies firmware. The full 1–25 Hz sequence and an abort were exercised on Windows; the device rejected 20–25 Hz, and other operating systems still need validation.
 
-The assignment is in [EXERCISE.md](EXERCISE.md), the measured results and design rationale are in [REPORT.md](REPORT.md), and additional design notes are in [DESIGN.md](DESIGN.md). Generated test runs in `runs/` remain local and are excluded from version control.
+The assignment is in [EXERCISE.md](EXERCISE.md), the measured results and design rationale are in [REPORT.md](REPORT.md), and additional design notes, including AI usage, are in [DESIGN.md](DESIGN.md).
+
+The Windows executable built in this workspace is `dist/SensorTestStation.exe`. Both `dist/` and generated reports in `runs/` are ignored by Git. If submitting a Git repository or a Git-generated archive, provide the executable and any raw run evidence separately; they will not be included automatically. The written report summarizes the measured results.
 
 ## Install and run from source
 
@@ -13,6 +15,8 @@ Connect the preflashed Teensy with USB and close `miniterm` or any other program
 ### Windows
 
 Open PowerShell in the project folder. The `py` command requires the Python launcher; if it is unavailable, install Python with the launcher from [python.org](https://www.python.org/downloads/windows/).
+
+If Python is available as `python` but the launcher cannot find it, use `python --version` and `python -m venv .venv` for the first two commands instead. Create the virtual environment on the target machine: a `.venv` copied from another computer can refer to a Python installation that does not exist. If such an environment is already present, create a fresh one under another name, for example `python -m venv venv`, and use `.\venv\Scripts\python.exe` in the remaining commands.
 
 ```powershell
 py --version
@@ -122,6 +126,8 @@ Overrides are applied in order: common criteria, channel criteria, frequency-wid
 
 Capture windows use the host's monotonic, high-resolution `time.perf_counter()` when the serial reader receives each row. The **host receive rate** is `(number of samples - 1) / (last receive time - first receive time)`. The GUI also shows the 95th percentile of inter-arrival intervals and the maximum gap; the JSON records those values, the median interval, equal-timestamp count, and clock resolution for baseline and each excited capture. These are host-delivery diagnostics, not measurements of the device's sampling clock or physical sampling jitter.
 
+Before checking a finished capture, the app waits for the serial worker's already-read samples to be delivered to the GUI. This avoids rejecting a capture solely because display processing delayed those samples. Samples outside the capture window are excluded, and genuinely insufficient data, gaps, and a worker that fails to respond still stop the test.
+
 The default receive-rate range of 60–200 Hz accommodates both the specified 100 Hz and the approximately 150 Hz observed during Windows testing; `max_sample_gap_s` defaults to 0.1 s. These are provisional transport-validity settings, not sampling specifications. Too few samples, CSV-like malformed rows, backward timestamps, a rate outside the configured range, a gap beyond the limit, lost connection, or a reported frequency rejection produces TEST ERROR. Explicit rejections and their frequency are saved in the JSON alongside completed sensor results. One-value frequency acknowledgements are checked when present; their absence is allowed and does not establish whether excitation occurred. Equal receive timestamps are allowed because USB delivery and host clock resolution can batch samples. Host timing cannot prove the true device sampling rate or guarantee that no rows were lost; that would require device-side timestamps or sequence numbers.
 
 ## Math
@@ -134,7 +140,7 @@ For each channel, baseline noise is the sample standard deviation of its baselin
 - **SNR (dB):** `20 log10[(response_amplitude / sqrt(2)) / baseline_noise_RMS]`
 - **PASS:** amplitude `>= minimum amplitude` and SNR `>= minimum SNR`, plus any enabled maximum noise, maximum amplitude, and signal-range limits.
 
-These criteria are frequency-selective: a large waveform at a **different** frequency may still fail. The application cannot independently verify the physical actuator frequency; additional checks would be needed for waveform distortion, nonlinear response, and out-of-band faults.
+These criteria are frequency-selective: a large waveform at a **different** frequency may still fail. For example, offline analysis of the recorded sensor 8 waveform found a strong component at twice the commanded frequency; the automatic test does not measure or diagnose that harmonic. The application cannot independently verify the physical actuator frequency; additional checks would be needed for waveform distortion, nonlinear response, and out-of-band faults.
 
 ## Run unit tests
 
@@ -154,14 +160,14 @@ First complete the source installation for the platform above. Run these command
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --onefile --windowed --name SensorTestStation main.py
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm SensorTestStation.spec
 if (-not (Test-Path -LiteralPath '.\dist\settings.json')) { Copy-Item -LiteralPath '.\settings.json' -Destination '.\dist\settings.json' }
 .\dist\SensorTestStation.exe
 ```
 
-This produces `dist\SensorTestStation.exe`. The copy command creates its external settings file only if one does not already exist, preserving any customized file. The `dist` folder must be writable: the executable reads and saves `dist\settings.json` and writes logs under `dist\runs\`. If its settings file is absent, the executable uses built-in defaults. An existing Windows executable and settings file are available in this workspace's `dist` folder.
+This produces `dist\SensorTestStation.exe`. The copy command creates its external settings file only if one does not already exist, preserving any customized file. The `dist` folder must be writable: the executable reads and saves `dist\settings.json` and writes logs under `dist\runs\`. If its settings file is absent, the executable uses built-in defaults. A locally built executable is not included in a Git checkout because `dist/` is ignored.
 
-**Windows path containing a comma:** Some PySide6 versions report an incorrect Qt plugin path to PyInstaller when the project or virtual environment lives in a comma-containing path, as in this workspace. If the build reports a missing Qt plugin directory, run the following instead of the PyInstaller command above. It temporarily maps the current project folder to an unused `T:` drive and removes the mapping afterward. Set `$buildDrive` to a different unused letter if `T:` is occupied.
+**Windows path containing a comma:** Some PySide6 versions report an incorrect Qt plugin path to PyInstaller when the project or virtual environment lives in a comma-containing path. If the build reports a missing Qt plugin directory, run the following instead of the PyInstaller command above. It temporarily maps the current project folder to an unused `T:` drive and removes the mapping afterward. Set `$buildDrive` to a different unused letter if `T:` is occupied.
 
 ```powershell
 $projectDirectory = (Get-Location).Path
@@ -171,7 +177,7 @@ subst $buildDrive $projectDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Could not create the temporary drive mapping.' }
 try {
     Set-Location "${buildDrive}\"
-    & "${buildDrive}\.venv\Scripts\python.exe" -m PyInstaller --noconfirm --onefile --windowed --name SensorTestStation main.py
+    & "${buildDrive}\.venv\Scripts\python.exe" -m PyInstaller --noconfirm SensorTestStation.spec
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
 } finally {
     Set-Location -LiteralPath $projectDirectory
