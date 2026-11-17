@@ -1,10 +1,21 @@
 {
   "default_frequency_hz": 10,
+  "test_frequencies_hz": [],
   "baseline_settle_s": 0.5,
   "baseline_capture_s": 2.0,
   "excite_settle_s": 0.5,
   "excite_capture_s": 2.0,
   "min_amplitude": 100.0,
   "min_snr_db": 15.0,
-  "nominal_sample_rate_hz": 100
+  "max_baseline_noise": null,
+  "max_response_amplitude": null,
+  "clip_min": null,
+  "clip_max": null,
+  "channel_criteria": {},
+  "frequency_criteria": {},
+  "frequency_timings": {},
+  "nominal_sample_rate_hz": 100,
+  "min_receive_rate_hz": 60,
+  "max_receive_rate_hz": 200,
+  "max_sample_gap_s": 0.1
 }

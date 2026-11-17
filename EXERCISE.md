@@ -1,4 +1,3 @@
-# Take-Home Exercise: Test Engineer
 
 ## Simulated Sensor + Actuator Test GUI
 
@@ -8,7 +7,7 @@ You’ll build a small desktop (or web) GUI that simulates a manufacturing line 
 
 We’re evaluating test software development: technical skill in building software, an ability to parameterize vague requirements, understanding of the audience who may use the software, and communication with hardware.
 
-**Time Box:** Spend 2-4 hours on this. It is ok if you do not get to everything, but discuss what you would do with more time (see below).
+
 
 ## What’s in the Box!?
 
@@ -58,11 +57,11 @@ We’re evaluating test software development: technical skill in building softwa
 
 1. Multiple Sensors for a single ‘test run’
 2. An external ‘Settings’ file to set pass/fail criteria and have it be read into the system
-3. AWS interfacing of the test results
-4. An installer, easily packaged and distributed
+
+3. An installer, easily packaged and distributed
    - single-file binary (PyInstaller), or MSIX / macOS app bundle.
-5. Batch sequencing (run N tests and compare results)
-6. Export Chart (png file or similar)
+4. Batch sequencing (run N tests and compare results)
+5. Export Chart (png file or similar)
 
 ## Deliverables
 
@@ -80,8 +79,3 @@ We’re evaluating test software development: technical skill in building softwa
 4. Prebuilt binary or .app/.exe.
 5. Unit tests for the client application implementation
 
-## Note on AI Usage
-
-- We look to leverage AI tools at Eight Sleep
-- You may use AI tools; please note where and how in DESIGN.md.
-- With the time constraints given, if you used AI tools, where might something be incorrect or in need of review?

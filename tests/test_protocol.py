@@ -13,11 +13,16 @@ class TestProtocol(unittest.TestCase):
         self.assertIsNone(parse_sample('command not recognized'))
         self.assertIsNone(parse_sample('1,2,3,4,5,6,7'))
         self.assertIsNone(parse_sample('1,2,3,4,5,6,7,foo,'))
+        self.assertIsNone(parse_sample('1,2,3,4,5,6,7,nan'))
+        self.assertIsNone(parse_sample('1,2,3,4,5,6,7,inf'))
 
     def test_excitation_command_without_line_ending(self):
         self.assertEqual(excitation_command(10), 'response:10')
         with self.assertRaises(ValueError):
             excitation_command(26)
+        for invalid in (0, 10.5, True):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                excitation_command(invalid)
 
 
 if __name__ == '__main__':
