@@ -4,6 +4,7 @@
   "baseline_settle_s": 0.5,
   "baseline_capture_s": 2.0,
   "excite_settle_s": 0.5,
+  "initial_excite_extra_settle_s": 0.5,
   "excite_capture_s": 2.0,
   "min_amplitude": 100.0,
   "min_snr_db": 15.0,

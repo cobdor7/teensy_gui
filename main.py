@@ -284,6 +284,19 @@ class MainWindow(QMainWindow):
         thresholds.addStretch()
         layout.addLayout(thresholds)
 
+        signal_limits = QHBoxLayout()
+        self.clip_min = QLineEdit('' if self.settings['clip_min'] is None else str(self.settings['clip_min']))
+        self.clip_max = QLineEdit('' if self.settings['clip_max'] is None else str(self.settings['clip_max']))
+        for field in (self.clip_min, self.clip_max):
+            field.setPlaceholderText('Disabled')
+            field.setToolTip('Leave blank to disable this raw sensor signal limit.')
+            field.setMaximumWidth(140)
+        for widget in (QLabel('Signal lower limit:'), self.clip_min,
+                       QLabel('Signal upper limit:'), self.clip_max):
+            signal_limits.addWidget(widget)
+        signal_limits.addStretch()
+        layout.addLayout(signal_limits)
+
         self.connection_label = QLabel('Disconnected | Last command: None')
         self.actuator_label = QLabel('Actuator requested: UNKNOWN (no hardware feedback)')
         self.test_label = QLabel('TEST ERROR: invalid settings — ' + self.config_error if self.config_error else 'Test: IDLE')
@@ -443,6 +456,8 @@ class MainWindow(QMainWindow):
         self.abort_button.setEnabled(self.is_connected and running)
         self.min_amplitude.setEnabled(not running)
         self.min_snr.setEnabled(not running)
+        self.clip_min.setEnabled(not running)
+        self.clip_max.setEnabled(not running)
         self.save_button.setEnabled(not running and not self.config_error)
 
     def toggle_connection(self):
@@ -577,6 +592,8 @@ class MainWindow(QMainWindow):
             test_settings = deepcopy(self.settings)
             test_settings['min_amplitude'] = float(self.min_amplitude.value())
             test_settings['min_snr_db'] = float(self.min_snr.value())
+            test_settings['clip_min'] = self.clip_min.text().strip() or None
+            test_settings['clip_max'] = self.clip_max.text().strip() or None
             test_settings['test_frequencies_hz'] = frequencies
             self.test_settings = normalize_settings(test_settings)
             for f in frequencies:
@@ -661,6 +678,8 @@ class MainWindow(QMainWindow):
         self.excited_samples = []
         self.test_hz = self.test_frequencies[self.frequency_index]
         self.test_timing = resolve_timing(self.test_settings, self.test_hz)
+        if self.frequency_index == 0:
+            self.test_timing['excite_settle_s'] += self.test_settings['initial_excite_extra_settle_s']
         self.expected_command = excitation_command(self.test_hz)
         self.command_wait_start = now
         self.set_test_state('WAIT_RESPONSE_COMMAND',
@@ -925,14 +944,18 @@ class MainWindow(QMainWindow):
                 self.worker.send('baseline')
 
     def save_settings(self):
-        self.settings['default_frequency_hz'] = int(self.frequency.value())
-        self.settings['min_amplitude'] = float(self.min_amplitude.value())
-        self.settings['min_snr_db'] = float(self.min_snr.value())
         try:
+            candidate = deepcopy(self.settings)
+            candidate['default_frequency_hz'] = int(self.frequency.value())
+            candidate['min_amplitude'] = float(self.min_amplitude.value())
+            candidate['min_snr_db'] = float(self.min_snr.value())
+            candidate['clip_min'] = self.clip_min.text().strip() or None
+            candidate['clip_max'] = self.clip_max.text().strip() or None
             text = self.frequency_sequence.text().strip()
-            self.settings['test_frequencies_hz'] = [int(part.strip()) for part in text.split(',')] if text else []
-            self.settings = normalize_settings(self.settings)
-            SETTINGS_PATH.write_text(json.dumps(self.settings, indent=2) + '\n', encoding='utf-8')
+            candidate['test_frequencies_hz'] = [int(part.strip()) for part in text.split(',')] if text else []
+            candidate = normalize_settings(candidate)
+            SETTINGS_PATH.write_text(json.dumps(candidate, indent=2) + '\n', encoding='utf-8')
+            self.settings = candidate
             self.statusBar().showMessage(f'Saved {SETTINGS_PATH}', 5000)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, 'Could not save settings', str(exc))

@@ -1,9 +1,10 @@
 """Smoke-test Qt initialization, including the plugin path setup."""
+import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
@@ -13,6 +14,65 @@ from main import MainWindow, FrequencyTimingsDialog
 
 
 class TestGui(unittest.TestCase):
+    def test_signal_limits_can_be_used_saved_and_disabled(self):
+        app = QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as directory, patch('main.SETTINGS_PATH', Path(directory) / 'settings.json'):
+            window = MainWindow()
+            try:
+                self.assertEqual(window.clip_min.text(), '')
+                self.assertEqual(window.clip_max.text(), '')
+                window.clip_min.setText('100')
+                window.clip_max.setText('4000')
+                window.is_connected = True
+                window.worker = Mock()
+                window.start_test()
+                self.assertEqual(window.test_settings['clip_min'], 100)
+                self.assertEqual(window.test_settings['clip_max'], 4000)
+                self.assertFalse(window.clip_min.isEnabled())
+                self.assertFalse(window.clip_max.isEnabled())
+                window.worker = None
+                window.test_state = 'IDLE'
+                window.update_controls()
+                window.save_settings()
+                stored = json.loads((Path(directory) / 'settings.json').read_text(encoding='utf-8'))
+                self.assertEqual((stored['clip_min'], stored['clip_max']), (100, 4000))
+
+                window.clip_min.clear()
+                window.save_settings()
+                self.assertIsNone(json.loads((Path(directory) / 'settings.json').read_text(encoding='utf-8'))['clip_min'])
+            finally:
+                window.worker = None
+                window.close()
+                app.processEvents()
+            reloaded = MainWindow()
+            try:
+                self.assertEqual(reloaded.clip_min.text(), '')
+                self.assertEqual(float(reloaded.clip_max.text()), 4000)
+            finally:
+                reloaded.close()
+                app.processEvents()
+
+    def test_invalid_signal_limits_cannot_be_saved_or_used(self):
+        app = QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as directory, patch('main.SETTINGS_PATH', Path(directory) / 'settings.json'):
+            window = MainWindow()
+            try:
+                window.clip_min.setText('4000')
+                window.clip_max.setText('100')
+                with patch('main.QMessageBox.warning') as warning:
+                    window.save_settings()
+                warning.assert_called_once()
+                self.assertFalse((Path(directory) / 'settings.json').exists())
+                window.is_connected = True
+                window.worker = Mock()
+                window.start_test()
+                self.assertEqual(window.test_state, 'ERROR')
+                window.worker.send.assert_not_called()
+            finally:
+                window.worker = None
+                window.close()
+                app.processEvents()
+
     def test_window_starts_and_shows_unconfirmed_actuator_state(self):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()

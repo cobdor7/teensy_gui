@@ -35,7 +35,8 @@ class WindowStub:
 
     def __init__(self):
         self.settings = dict(main.DEFAULT_SETTINGS, baseline_settle_s=0.1,
-                             excite_settle_s=0.1, baseline_capture_s=0.5,
+                             excite_settle_s=0.1, initial_excite_extra_settle_s=0,
+                             baseline_capture_s=0.5,
                              excite_capture_s=0.5)
         self.is_connected = True
         self.config_error = ''
@@ -47,6 +48,8 @@ class WindowStub:
         self.frequency_sequence = Mock(text=Mock(return_value=''))
         self.min_amplitude = Mock(value=Mock(return_value=100))
         self.min_snr = Mock(value=Mock(return_value=15))
+        self.clip_min = Mock(text=Mock(return_value=''))
+        self.clip_max = Mock(text=Mock(return_value=''))
         self.port = Mock(currentData=Mock(return_value='FAKE'))
         self.test_state = 'IDLE'
         self.history = [deque(maxlen=1000) for _ in range(8)]
@@ -83,6 +86,27 @@ class TestSequence(unittest.TestCase):
             self.window.start_test()
         self.window.on_command_sent('baseline', 100.0)
         self.tick(100.11)
+
+    def test_first_excitation_waits_longer_before_capture(self):
+        w = self.window
+        w.settings['initial_excite_extra_settle_s'] = 0.5
+        w.frequency_sequence.text.return_value = '10, 20'
+        self.begin()
+        for i in range(50):
+            w.on_sample(100.11 + i / 100, (0.0,) * 8)
+        self.tick(100.62)
+        w.on_command_sent('response:10', 100.62)
+        self.assertAlmostEqual(w.deadline, 101.22)
+        self.tick(100.73)
+        self.assertEqual(w.test_state, 'EXCITE_SETTLE')
+        self.tick(101.23)
+        self.assertEqual(w.test_state, 'EXCITE_CAPTURE')
+        self.assertAlmostEqual(w.test_timing['excite_settle_s'], 0.6)
+
+        w.frequency_index = 1
+        w.request_response(102.0)
+        w.on_command_sent('response:20', 102.0)
+        self.assertAlmostEqual(w.deadline, 102.1)
 
     def test_complete_sequence_and_output_files(self):
         w = self.window

@@ -63,7 +63,7 @@ Use **Live charts** for the rolling signal, or **Captured test charts** after an
 Click **Export current charts to PNG…** to save all eight graphs from the selected chart tab, including graphs outside the visible scroll area. The live export shows the current rolling window; the captured export shows the selected frequency and display mode. Choose a writable destination in the save dialog.
 
 1. Select a frequency, enter a comma-separated sequence such as `1, 5, 10, 15`, or click **Use all frequencies (1–25 Hz)** to fill in the whole range. A blank sequence uses the selected frequency. On the tested device, 20–25 Hz were explicitly rejected despite the assignment specifying 1–25 Hz.
-2. Change **Minimum response amplitude** and **Minimum SNR** if needed. Defaults are **100 (sensor units)** and **15 dB**, respectively; these are *provisional* engineering thresholds, not manufacturer specs. Other limits are configurable in `settings.json`.
+2. Change **Minimum response amplitude** and **Minimum SNR** if needed. Defaults are **100 (sensor units)** and **15 dB**, respectively; these are *provisional* engineering thresholds, not manufacturer specs. Enter optional **Signal lower limit** and **Signal upper limit** values for raw samples, or leave either blank to disable it. Click **Save Settings** to retain these values. Other limits are configurable in `settings.json`.
 3. To use different times for individual frequencies, click **Frequency timing…**, enter optional settling and/or capture times in seconds, and click **OK**. Leave a cell blank to use the common default. Click **Save Settings** if you want to keep the overrides for later runs. For example, a 1 Hz capture needs at least 2 seconds for two cycles; longer can provide more data.
 4. Click **RUN AUTOMATIC TEST**. The app captures one baseline, then settles, captures and evaluates each requested frequency in turn, showing the frequency and progress. It requests `baseline` again after the test. Each excited capture must cover at least two cycles. Testing all 25 frequencies takes approximately a minute with the default capture settings, depending on device responses.
 5. Inspect the per-frequency results table for values, effective limits, PASS/FAIL, and the visible reason. A rejected frequency gets its own **REJECTED** row and no sensor results; the app requests baseline and continues to the next frequency. The overall result is **TEST ERROR** if any frequency was rejected. Other capture or communication errors stop the run; partial results do not constitute an overall pass.
@@ -79,7 +79,7 @@ Each completed run saves its usual `test_*.csv` and `test_*.json`. A `batch_*.js
 
 ## Configuration
 
-When running from source, the app reads `settings.json` beside `main.py` and writes logs under the project's `runs/` directory. Edit `settings.json` while the app is closed to set capture/settle durations, frequency sequence, validity limits, and common or per-channel criteria. The **Save Settings** button saves the selected frequency, frequency sequence, per-frequency timing overrides, and the two common thresholds shown in the GUI. Settings are locked during a test. An invalid settings file disables testing and displays a TEST ERROR; correct the file and restart the app. Packaged executables use a separate settings file beside the executable, as described below.
+When running from source, the app reads `settings.json` beside `main.py` and writes logs under the project's `runs/` directory. Edit `settings.json` while the app is closed to set capture/settle durations, frequency sequence, validity limits, and common or per-channel criteria. The **Save Settings** button saves the selected frequency, frequency sequence, per-frequency timing overrides, and common thresholds shown in the GUI, including signal limits. Channel and frequency overrides still take precedence over common limits. Settings are locked during a test. An invalid settings file disables testing and displays a TEST ERROR; correct the file and restart the app. Packaged executables use a separate settings file beside the executable, as described below.
 
 ```json
 {
@@ -88,6 +88,7 @@ When running from source, the app reads `settings.json` beside `main.py` and wri
   "baseline_settle_s": 0.5,
   "baseline_capture_s": 2.0,
   "excite_settle_s": 0.5,
+  "initial_excite_extra_settle_s": 0.5,
   "excite_capture_s": 2.0,
   "min_amplitude": 100.0,
   "min_snr_db": 15.0,
@@ -105,7 +106,7 @@ When running from source, the app reads `settings.json` beside `main.py` and wri
 }
 ```
 
-Frequency timing overrides can also be set in the file, for example `"frequency_timings": {"1": {"excite_capture_s": 4.0}, "10": {"excite_settle_s": 1.0, "excite_capture_s": 2.5}}`. Each setting must be 0.1–30 seconds; omitted values inherit the common excited settling and capture times. The app validates the two-cycle minimum for every selected frequency before starting and records the resolved times for each frequency in the run JSON. Longer capture times improve the opportunity to observe more cycles but increase total test time; two cycles is a basic minimum, not a guarantee of measurement accuracy.
+Frequency timing overrides can also be set in the file, for example `"frequency_timings": {"1": {"excite_capture_s": 4.0}, "10": {"excite_settle_s": 1.0, "excite_capture_s": 2.5}}`. Each settle or capture setting must be 0.1–30 seconds; omitted values inherit the common excited settling and capture times. The first excitation in each run also waits `initial_excite_extra_settle_s` (0.5 seconds by default, adjustable from 0 to 30 seconds) before capture to allow the waveform extra time to settle. The app validates the two-cycle minimum for every selected frequency before starting and records the actual settling and capture times for each frequency in the run JSON. Longer capture times improve the opportunity to observe more cycles but increase total test time; two cycles is a basic minimum, not a guarantee of measurement accuracy.
 
 All four optional limits default to `null` (disabled): no noise ceiling, response ceiling, or signal bounds are assumed without a specification. `clip_min` and `clip_max` are absolute sample-value boundaries; any baseline or excited sample at or beyond a configured boundary fails that channel. They are a range-limit check, not proof of physical clipping. For example, this structure sets illustrative channel and frequency overrides:
 

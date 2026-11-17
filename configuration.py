@@ -8,7 +8,7 @@ OPTIONAL = set(CRITERIA) - {'min_amplitude', 'min_snr_db'}
 DEFAULT_SETTINGS = {
     'default_frequency_hz': 10, 'test_frequencies_hz': [],
     'baseline_settle_s': 0.5, 'baseline_capture_s': 2.0,
-    'excite_settle_s': 0.5, 'excite_capture_s': 2.0,
+    'excite_settle_s': 0.5, 'initial_excite_extra_settle_s': 0.5, 'excite_capture_s': 2.0,
     'min_amplitude': 100.0, 'min_snr_db': 15.0,
     'max_baseline_noise': None, 'max_response_amplitude': None,
     'clip_min': None, 'clip_max': None,
@@ -90,6 +90,8 @@ def normalize_settings(data):
     settings.update(data)
     for key in ('baseline_settle_s', 'baseline_capture_s', 'excite_settle_s', 'excite_capture_s'):
         settings[key] = number(settings[key], key, 0.1, 30)
+    settings['initial_excite_extra_settle_s'] = number(
+        settings['initial_excite_extra_settle_s'], 'initial_excite_extra_settle_s', 0, 30)
     settings['default_frequency_hz'] = number(settings['default_frequency_hz'], 'default_frequency_hz', 1, 25, True)
     settings['nominal_sample_rate_hz'] = number(settings['nominal_sample_rate_hz'], 'nominal_sample_rate_hz', 10, 10_000, True)
     settings['min_receive_rate_hz'] = number(settings['min_receive_rate_hz'], 'min_receive_rate_hz', 1, 10_000)
